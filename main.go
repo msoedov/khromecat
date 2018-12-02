@@ -2,12 +2,9 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"net"
-	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"golang.org/x/net/context"
@@ -19,6 +16,25 @@ import (
 	"github.com/barnybug/go-cast/log"
 	"github.com/urfave/cli"
 )
+
+// Ctrl documents here
+type Ctrl struct {
+	Opts *Opts
+	Cli  *cli.Context
+}
+
+func (self *Ctrl) init(c *cli.Context) *Ctrl {
+	self.Opts = NewOpts()
+	log.Debug = c.GlobalBool("debug")
+	self.Opts.Timeout = c.GlobalDuration("timeout")
+	self.Opts.WorkingDir = c.GlobalString("dir")
+	self.Cli = c
+	return self
+}
+
+func NewCtrl(c *cli.Context) *Ctrl {
+	return new(Ctrl).init(c)
+}
 
 // Opts documents here
 type Opts struct {
@@ -39,21 +55,8 @@ func NewOpts() *Opts {
 	return new(Opts).init()
 }
 
-func checkErr(err error) {
-	if err != nil {
-		if err == context.DeadlineExceeded {
-			fmt.Println("Timeout exceeded")
-		} else {
-			fmt.Println(err)
-		}
-		os.Exit(1)
-	}
-}
-
-func connect(ctx context.Context, opts *Opts) *cast.Client {
-
-	client := cast.NewClient(opts.Host, opts.Port)
-
+func (self *Ctrl) connect(ctx context.Context) *cast.Client {
+	client := cast.NewClient(self.Opts.Host, self.Opts.Port)
 	checkErr(ctx.Err())
 
 	fmt.Printf("Connecting to %s:%d...\n", client.IP(), client.Port())
@@ -63,70 +66,43 @@ func connect(ctx context.Context, opts *Opts) *cast.Client {
 	return client
 }
 
-func discover(timeout time.Duration) *Opts {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func (self *Ctrl) discover() {
+	ctx, cancel := context.WithTimeout(context.Background(), self.Opts.Timeout)
 	defer cancel()
 	discover := discovery.NewService(ctx)
 	ch := make(chan *Opts)
 	go func() {
-		found := map[string]bool{}
 		for client := range discover.Found() {
-			if _, ok := found[client.Uuid()]; !ok {
-				fmt.Printf("Found: %s:%d '%s' (%s) %s\n", client.IP(), client.Port(), client.Name(), client.Device(), client.Status())
-				found[client.Uuid()] = true
-				ch <- &Opts{Host: client.IP(), Port: client.Port(), FileServer: ":3099"}
-				cancel()
-				break
-			}
+			fmt.Printf("Found: %s:%d '%s' (%s) %s\n", client.IP(), client.Port(), client.Name(), client.Device(), client.Status())
+			self.Opts.Host = client.IP()
+			self.Opts.Port = client.Port()
+			cancel()
+			ch <- self.Opts
+			break
 		}
-		fmt.Printf("found %#v\n", found)
 	}()
 
-	fmt.Printf("Running discovery for %s...\n", timeout)
-	err := discover.Run(ctx, timeout)
+	fmt.Printf("Running discovery for %s...\n", self.Opts.Timeout)
+	err := discover.Run(ctx, self.Opts.Timeout)
 	select {
-	case x := <-ch:
-		return x
+	case <-ch:
+		return
 	default:
 		panic("Nothing discovered")
 	}
 	checkErr(err)
-	return nil
+	return
 }
 
-func exposeFiles(opts *Opts) {
-	fs := http.FileServer(http.Dir(opts.WorkingDir))
-	http.Handle("/", fs)
-	log.Println("Listening...")
-	http.ListenAndServe(":3099", nil)
-}
-
-func getMedia(opts *Opts) []string {
-	files, err := ioutil.ReadDir(opts.WorkingDir)
-	if err != nil {
-		return nil
-	}
-	medias := []string{}
-	for _, file := range files {
-		name := file.Name()
-		fmt.Println(name)
-
-		if strings.HasSuffix(name, ".mp3") {
-			medias = append(medias, name)
-		}
-	}
-	return medias
-}
-
-func play(opts *Opts) {
-	ctx, cancel := context.WithTimeout(context.Background(), opts.Timeout)
+func (self *Ctrl) play() {
+	ctx, cancel := context.WithTimeout(context.Background(), self.Opts.Timeout)
 	defer cancel()
-	client := connect(ctx, opts)
+	client := self.connect(ctx)
 	media, err := client.Media(ctx)
 	checkErr(err)
 	rand.Seed(time.Now().Unix()) // initialize global pseudo random generator
-	src := opts.MediaSrcs[rand.Intn(len(opts.MediaSrcs))]
-	url := fmt.Sprintf("http://%s%s/%s", GetLocalIP(), opts.FileServer, src)
+	src := self.Opts.MediaSrcs[rand.Intn(len(self.Opts.MediaSrcs))]
+	url := fmt.Sprintf("http://%s%s/%s", getLocalIP(), self.Opts.FileServer, src)
 	fmt.Printf("url %#v\n", url)
 	contentType := "audio/mpeg"
 	item := controllers.MediaItem{
@@ -139,28 +115,28 @@ func play(opts *Opts) {
 }
 
 func discoverCommand(c *cli.Context) {
-	log.Debug = c.GlobalBool("debug")
-	timeout := c.GlobalDuration("timeout")
-	opts := discover(timeout)
-	opts.WorkingDir = c.GlobalString("dir")
-	opts.Timeout = timeout
-	go exposeFiles(opts)
-	fmt.Printf("opts %#v\n", opts)
-	opts.MediaSrcs = getMedia(opts)
-	fmt.Printf("getMedia(dir) %#v\n", opts.MediaSrcs)
-	play(opts)
+	ctrl := NewCtrl(c)
+	ctrl.discover()
+	go streamFiles(ctrl.Opts.WorkingDir)
+	fmt.Printf("opts %#v\n", ctrl.Opts)
+	ctrl.Opts.MediaSrcs = scanMedia(ctrl.Opts.WorkingDir)
+	fmt.Printf("scanMedia(dir) %#v\n", ctrl.Opts)
+	for {
+		ctrl.play()
+		fmt.Println("Watching")
+		time.Sleep(10)
+		ctrl.watchCommand()
+	}
 	fmt.Println("Done")
-	watchCommand(c, opts)
+
 }
 
-func watchCommand(c *cli.Context, opts *Opts) {
-	log.Debug = c.GlobalBool("debug")
-	timeout := c.GlobalDuration("timeout")
+func (self *Ctrl) watchCommand() {
 
 CONNECT:
 	for {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		client := connect(ctx, opts)
+		ctx, cancel := context.WithTimeout(context.Background(), self.Opts.Timeout)
+		client := self.connect(ctx)
 		client.Media(ctx)
 		cancel()
 
@@ -182,10 +158,17 @@ CONNECT:
 				fmt.Printf("Media Status: state: %s %.1fs\n", t.PlayerState, t.CurrentTime)
 
 				if t.PlayerState == "PAUSED" {
+					os.Exit(0)
 					return
 				}
+				if t.PlayerState == "PLAYING" && t.CurrentTime > 10 {
+					fmt.Println("Playing next...")
+					return
+
+				}
+
 				if t.PlayerState == "IDLE" {
-					play(opts)
+					fmt.Println("Playing next idle ...")
 					return
 				}
 			default:
@@ -193,22 +176,6 @@ CONNECT:
 			}
 		}
 	}
-}
-
-func GetLocalIP() string {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return ""
-	}
-	for _, address := range addrs {
-		// check the address type and if it is not a loopback the display it
-		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return ipnet.IP.String()
-			}
-		}
-	}
-	return ""
 }
 
 func main() {
@@ -223,10 +190,6 @@ func main() {
 			Value: 8009,
 		},
 		cli.StringFlag{
-			Name:  "name",
-			Usage: "chromecast name (required)",
-		},
-		cli.StringFlag{
 			Name:  "dir",
 			Usage: "directory",
 			Value: ".",
@@ -237,7 +200,7 @@ func main() {
 		},
 	}
 	app := cli.NewApp()
-	app.Name = "cast"
+	app.Name = "chcat"
 	app.Usage = "Command line tool for the Chromecast"
 	app.Version = cast.Version
 	app.Flags = commonFlags

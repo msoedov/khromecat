@@ -9,11 +9,11 @@ import (
 
 	"golang.org/x/net/context"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/barnybug/go-cast"
 	"github.com/barnybug/go-cast/controllers"
 	"github.com/barnybug/go-cast/discovery"
 	"github.com/barnybug/go-cast/events"
-	"github.com/barnybug/go-cast/log"
 	"github.com/urfave/cli"
 )
 
@@ -25,7 +25,6 @@ type Ctrl struct {
 
 func (self *Ctrl) init(c *cli.Context) *Ctrl {
 	self.Opts = NewOpts()
-	log.Debug = c.GlobalBool("debug")
 	self.Opts.Timeout = c.GlobalDuration("timeout")
 	self.Opts.WorkingDir = c.GlobalString("dir")
 	self.Cli = c
@@ -62,7 +61,7 @@ func (self *Ctrl) connect(ctx context.Context) *cast.Client {
 	fmt.Printf("Connecting to %s:%d...\n", client.IP(), client.Port())
 	err := client.Connect(ctx)
 	checkErr(err)
-	fmt.Println("Connected")
+	log.Println("Connected")
 	return client
 }
 
@@ -73,7 +72,7 @@ func (self *Ctrl) discover() {
 	ch := make(chan *Opts)
 	go func() {
 		for client := range discover.Found() {
-			fmt.Printf("Found: %s:%d '%s' (%s) %s\n", client.IP(), client.Port(), client.Name(), client.Device(), client.Status())
+			log.Printf("Found: %s:%d '%s' (%s) %s\n", client.IP(), client.Port(), client.Name(), client.Device(), client.Status())
 			self.Opts.Host = client.IP()
 			self.Opts.Port = client.Port()
 			cancel()
@@ -118,16 +117,16 @@ func discoverCommand(c *cli.Context) {
 	ctrl := NewCtrl(c)
 	ctrl.discover()
 	go streamFiles(ctrl.Opts.WorkingDir)
-	fmt.Printf("opts %#v\n", ctrl.Opts)
+	log.Printf("opts %#v\n", ctrl.Opts)
 	ctrl.Opts.MediaSrcs = scanMedia(ctrl.Opts.WorkingDir)
-	fmt.Printf("scanMedia(dir) %#v\n", ctrl.Opts)
+	log.Printf("scanMedia(dir) %#v\n", ctrl.Opts)
 	for {
 		ctrl.play()
-		fmt.Println("Watching")
+		log.Println("Watching")
 		time.Sleep(10)
 		ctrl.watchCommand()
 	}
-	fmt.Println("Done")
+	log.Println("Done")
 
 }
 
@@ -144,35 +143,35 @@ CONNECT:
 			switch t := event.(type) {
 			case events.Connected:
 			case events.AppStarted:
-				fmt.Printf("App started: %s [%s]\n", t.DisplayName, t.AppID)
+				log.Printf("App started: %s [%s]\n", t.DisplayName, t.AppID)
 			case events.AppStopped:
-				fmt.Printf("App stopped: %s [%s]\n", t.DisplayName, t.AppID)
+				log.Printf("App stopped: %s [%s]\n", t.DisplayName, t.AppID)
 			case events.StatusUpdated:
-				fmt.Printf("Status updated: volume %.2f [%v]\n", t.Level, t.Muted)
+				log.Printf("Status updated: volume %.2f [%v]\n", t.Level, t.Muted)
 			case events.Disconnected:
-				fmt.Printf("Disconnected: %s\n", t.Reason)
-				fmt.Println("Reconnecting...")
+				log.Printf("Disconnected: %s\n", t.Reason)
+				log.Println("Reconnecting...")
 				client.Close()
 				continue CONNECT
 			case controllers.MediaStatus:
-				fmt.Printf("Media Status: state: %s %.1fs\n", t.PlayerState, t.CurrentTime)
+				log.Printf("Media Status: state: %s %.1fs\n", t.PlayerState, t.CurrentTime)
 
 				if t.PlayerState == "PAUSED" {
 					os.Exit(0)
 					return
 				}
 				if t.PlayerState == "PLAYING" && t.CurrentTime > 10 {
-					fmt.Println("Playing next...")
+					log.Println("Playing next...")
 					return
 
 				}
 
 				if t.PlayerState == "IDLE" {
-					fmt.Println("Playing next idle ...")
+					log.Println("Playing next idle ...")
 					return
 				}
 			default:
-				fmt.Printf("Unknown event: %#v\n", t)
+				log.Printf("Unknown event: %#v\n", t)
 			}
 		}
 	}

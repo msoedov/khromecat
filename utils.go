@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
 	"strings"
 
-	"github.com/barnybug/go-cast/log"
+	log "github.com/Sirupsen/logrus"
 )
 
 func getLocalIP() string {
@@ -31,9 +30,9 @@ func getLocalIP() string {
 func checkErr(err error) {
 	if err != nil {
 		if err == context.DeadlineExceeded {
-			fmt.Println("Timeout exceeded")
+			log.Errorln("Timeout exceeded")
 		} else {
-			fmt.Println(err)
+			log.Errorln(err)
 		}
 		os.Exit(1)
 	}
@@ -55,8 +54,7 @@ func scanMedia(dir string) []string {
 	for _, file := range files {
 		name := file.Name()
 		if strings.HasSuffix(name, ".mp3") {
-			fmt.Println("Discovered", name)
-
+			log.Println("Discovered", name)
 			medias = append(medias, name)
 		}
 	}

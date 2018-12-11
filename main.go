@@ -10,18 +10,27 @@ import (
 	"golang.org/x/net/context"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/barnybug/go-cast"
+	cast "github.com/barnybug/go-cast"
 	"github.com/barnybug/go-cast/controllers"
 	"github.com/barnybug/go-cast/discovery"
 	"github.com/barnybug/go-cast/events"
 	"github.com/urfave/cli"
 )
 
-// Ctrl documents here
-type Ctrl struct {
-	Opts *Opts
-	Cli  *cli.Context
-}
+type (
+	Ctrl struct {
+		Opts *Opts
+		Cli  *cli.Context
+	}
+	Opts struct {
+		Host       net.IP
+		Port       int
+		FileServer string
+		WorkingDir string
+		Timeout    time.Duration
+		MediaSrcs  []string
+	}
+)
 
 func (self *Ctrl) init(c *cli.Context) *Ctrl {
 	self.Opts = NewOpts()
@@ -35,16 +44,6 @@ func NewCtrl(c *cli.Context) *Ctrl {
 	return new(Ctrl).init(c)
 }
 
-// Opts documents here
-type Opts struct {
-	Host       net.IP
-	Port       int
-	FileServer string
-	WorkingDir string
-	Timeout    time.Duration
-	MediaSrcs  []string
-}
-
 func (self *Opts) init() *Opts {
 	self.FileServer = ":3099"
 	return self
@@ -55,14 +54,22 @@ func NewOpts() *Opts {
 }
 
 func (self *Ctrl) connect(ctx context.Context) *cast.Client {
-	client := cast.NewClient(self.Opts.Host, self.Opts.Port)
-	checkErr(ctx.Err())
+	var err error
+	for i := 0; i < 5; i++ {
+		client := cast.NewClient(self.Opts.Host, self.Opts.Port)
+		checkErr(ctx.Err())
 
-	fmt.Printf("Connecting to %s:%d...\n", client.IP(), client.Port())
-	err := client.Connect(ctx)
+		fmt.Printf("Connecting to %s:%d...\n", client.IP(), client.Port())
+		err = client.Connect(ctx)
+		if err == nil {
+			log.Println("Connected")
+			return client
+		}
+		time.Sleep(time.Second)
+		log.Println("Retry")
+	}
 	checkErr(err)
-	log.Println("Connected")
-	return client
+	return nil
 }
 
 func (self *Ctrl) discover() {
@@ -82,14 +89,13 @@ func (self *Ctrl) discover() {
 	}()
 
 	fmt.Printf("Running discovery for %s...\n", self.Opts.Timeout)
-	err := discover.Run(ctx, self.Opts.Timeout)
+	discover.Run(ctx, self.Opts.Timeout)
 	select {
 	case <-ch:
 		return
 	default:
 		panic("Nothing discovered")
 	}
-	checkErr(err)
 	return
 }
 
@@ -126,7 +132,6 @@ func discoverCommand(c *cli.Context) {
 		time.Sleep(10)
 		ctrl.watchCommand()
 	}
-	log.Println("Done")
 
 }
 

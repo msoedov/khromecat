@@ -53,7 +53,7 @@ func scanMedia(dir string) []string {
 	medias := []string{}
 	for _, file := range files {
 		name := file.Name()
-		if strings.HasSuffix(name, ".mp3") {
+		if strings.HasSuffix(name, ".mp3") || strings.HasSuffix(name, ".m4a") {
 			log.Println("Discovered", name)
 			medias = append(medias, name)
 		}

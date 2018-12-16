@@ -116,7 +116,10 @@ func (self *Ctrl) play() {
 		ContentType: contentType,
 	}
 	_, err = media.LoadMedia(ctx, item, 0, true, map[string]interface{}{})
-	checkErr(err)
+	if err != nil {
+		log.Errorf("Ouch %s", err)
+		self.play()
+	}
 }
 
 func discoverCommand(c *cli.Context) {
@@ -200,7 +203,7 @@ func main() {
 		},
 		cli.DurationFlag{
 			Name:  "timeout",
-			Value: 3 * time.Second,
+			Value: 5 * time.Second,
 		},
 	}
 	app := cli.NewApp()

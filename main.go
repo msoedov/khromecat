@@ -27,6 +27,7 @@ type (
 		Port       int
 		FileServer string
 		WorkingDir string
+		Url        string
 		Timeout    time.Duration
 		MediaSrcs  []string
 	}
@@ -36,6 +37,7 @@ func (self *Ctrl) init(c *cli.Context) *Ctrl {
 	self.Opts = NewOpts()
 	self.Opts.Timeout = c.GlobalDuration("timeout")
 	self.Opts.WorkingDir = c.GlobalString("dir")
+	self.Opts.Url = c.GlobalString("url")
 	self.Cli = c
 	return self
 }
@@ -99,15 +101,18 @@ func (self *Ctrl) discover() {
 	return
 }
 
-func (self *Ctrl) play() {
+func (self *Ctrl) chooseSrc() string {
+	src := self.Opts.MediaSrcs[rand.Intn(len(self.Opts.MediaSrcs))]
+	return fmt.Sprintf("http://%s%s/%s", getLocalIP(), self.Opts.FileServer, src)
+}
+
+func (self *Ctrl) play(url string) {
 	ctx, cancel := context.WithTimeout(context.Background(), self.Opts.Timeout)
 	defer cancel()
 	client := self.connect(ctx)
 	media, err := client.Media(ctx)
 	checkErr(err)
 	rand.Seed(time.Now().Unix()) // initialize global pseudo random generator
-	src := self.Opts.MediaSrcs[rand.Intn(len(self.Opts.MediaSrcs))]
-	url := fmt.Sprintf("http://%s%s/%s", getLocalIP(), self.Opts.FileServer, src)
 	fmt.Printf("url %#v\n", url)
 	contentType := "audio/mpeg"
 	item := controllers.MediaItem{
@@ -118,7 +123,7 @@ func (self *Ctrl) play() {
 	_, err = media.LoadMedia(ctx, item, 0, true, map[string]interface{}{})
 	if err != nil {
 		log.Errorf("Ouch %s", err)
-		self.play()
+		self.play(url)
 	}
 }
 
@@ -130,11 +135,22 @@ func discoverCommand(c *cli.Context) {
 	ctrl.Opts.MediaSrcs = scanMedia(ctrl.Opts.WorkingDir)
 	log.Printf("scanMedia(dir) %#v\n", ctrl.Opts)
 	for {
-		ctrl.play()
+		src := ctrl.chooseSrc()
+		ctrl.play(src)
 		log.Println("Watching")
 		time.Sleep(10)
 		ctrl.watchCommand()
 	}
+
+}
+
+func audioCommand(c *cli.Context) {
+	ctrl := NewCtrl(c)
+	ctrl.discover()
+	url := ctrl.Opts.Url
+	log.Printf("opts %#v\n", ctrl.Opts)
+	ctrl.play(url)
+	ctrl.watchCommand()
 
 }
 
@@ -201,6 +217,11 @@ func main() {
 			Usage: "directory",
 			Value: ".",
 		},
+		cli.StringFlag{
+			Name:  "url",
+			Usage: "url",
+			Value: "http://107.182.230.196/audio1110/2.mp3",
+		},
 		cli.DurationFlag{
 			Name:  "timeout",
 			Value: 5 * time.Second,
@@ -214,8 +235,13 @@ func main() {
 	app.Commands = []cli.Command{
 		{
 			Name:   "d",
-			Usage:  "Discover Chromecast devices",
+			Usage:  "Play from the local directory",
 			Action: discoverCommand,
+		},
+		{
+			Name:   "a",
+			Usage:  "Play from the internet",
+			Action: audioCommand,
 		},
 	}
 	app.Run(os.Args)

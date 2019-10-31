@@ -9,14 +9,15 @@ import (
 
 	"golang.org/x/net/context"
 
-	log "github.com/Sirupsen/logrus"
 	cast "github.com/barnybug/go-cast"
 	"github.com/barnybug/go-cast/controllers"
 	"github.com/barnybug/go-cast/discovery"
 	"github.com/barnybug/go-cast/events"
+	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
 
+//  Grouped in type (...)
 type (
 	Ctrl struct {
 		Opts *Opts
@@ -228,7 +229,7 @@ func main() {
 		},
 	}
 	app := cli.NewApp()
-	app.Name = "chcat"
+	app.Name = "khromecat"
 	app.Usage = "Command line tool for the Chromecast"
 	app.Version = cast.Version
 	app.Flags = commonFlags

@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	log "github.com/Sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 )
 
 func getLocalIP() string {
@@ -32,7 +32,7 @@ func checkErr(err error) {
 		if err == context.DeadlineExceeded {
 			log.Errorln("Timeout exceeded")
 		} else {
-			log.Errorln(err)
+			log.Errorln("checkErr", err)
 		}
 		os.Exit(1)
 	}
